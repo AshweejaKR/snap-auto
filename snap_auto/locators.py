@@ -39,14 +39,50 @@ class LoginLocators:
 
 
 class FriendsLocators:
-    friend_list_container = "TODO"
-    friend_list_item = "TODO"
-    friend_name = "TODO"
+    """web.snapchat.com has no dedicated friends page (confirmed via a Playwright
+    codegen session against a real, logged-in account): every friend appears as a
+    row in the chat list instead. get_fnd_list() in client.py derives its dicts
+    from ChatLocators.chat_list_item rather than a separate selector set, so this
+    class intentionally has no fields. If a broader friend source shows up later
+    (e.g. the "New Chat" dialog's contact picker, which the same codegen session
+    touched via a still-unlabeled search box and `div.nth(3)` result — too fragile
+    to use as-is), add selectors here then.
+    """
 
 
 class ChatLocators:
-    chat_list_container = "TODO"
-    chat_list_item = "TODO"
+    # Confirmed via Playwright codegen against a real, logged-in session: every
+    # chat/friend row on the default view is a <button> whose accessible name
+    # (and text content) is "{username} , {status}", e.g. "Anagha Hegde , New
+    # Snap", "kiran , Received", "Simple_02 , New Snap on mobile". client.py
+    # splits that combined text on " , " (see _parse_chat_row) rather than
+    # scraping username/preview from separate sub-elements, since no distinct
+    # sub-selectors are confirmed yet. There's no evidence of a separate nav tab
+    # for the chat list (it appears to be the default view after login), so
+    # nav_button is left as a no-op TODO.
+    nav_button = "TODO"
+    # `:has-text(",")` is a heuristic: every observed chat row's accessible name
+    # contains " , ", and neither "New Chat" nor "View friend requests" (the
+    # other buttons seen in the same session) do. Re-tighten with a real
+    # container/class selector (via scripts/inspect_dom.py) if this starts
+    # matching unrelated buttons.
+    chat_list_container = 'button:has-text(",")'
+    chat_list_item = 'button:has-text(",")'
+    # Row text is "{username} , {status}", parsed in client.py — no confirmed
+    # separate DOM elements for these yet.
+    chat_item_username = "TODO"
+    chat_item_preview = "TODO"
+    chat_item_timestamp = "TODO"
+    # Presence-based (e.g. an unread-dot element); count() > 0 means unread.
+    # Status text alone ("New Snap" vs "Received") might imply unread state, but
+    # that's a product-semantics guess, not a confirmed DOM signal — left TODO.
+    chat_item_unread_marker = "TODO"
+    # Opportunistic: name of a data-* attribute (e.g. "data-user-id") on
+    # chat_list_item that exposes an internal id, if the DOM has one at all.
+    chat_item_user_id_attribute = "TODO"
+    new_chat_button = 'role=button[name="New Chat"]'
+    view_friend_requests_button = 'role=button[name="View friend requests"]'
+    # Message thread UI (Phase 3), not the chat list itself.
     message_input = "TODO"
     send_button = "TODO"
     message_bubble = "TODO"

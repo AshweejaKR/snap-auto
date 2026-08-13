@@ -77,16 +77,32 @@ start getting blocked or captcha'd.
   guess since Snapchat's web login shows inconsistent field labels/languages
   and button text ("Log in" vs "Next") across sessions.
 
-### Phase 2 — Discovery APIs
-- `get_fnd_list()` — scrape the friends list.
-- `get_all_chat_session()` — scrape the chat/conversation list.
+### Phase 2 — Discovery APIs ✅ Implemented, chat list selectors confirmed via codegen; sub-fields still unresolved
+- `get_fnd_list()` — web.snapchat.com has **no dedicated friends page**
+  (confirmed via a Playwright codegen session against a real, logged-in
+  account); every friend appears as a row in the chat list instead. Derived
+  from `get_all_chat_session()` into `{"username", "user_id"}` dicts — only
+  covers friends with an existing chat, not the full friend graph. A richer
+  source (the "New Chat" dialog's contact picker) was seen in the same
+  codegen session but its selectors (an unlabeled search box, `div.nth(3)`)
+  are too fragile to use as-is; revisit if the chat-list-derived list proves
+  insufficient.
+- `get_all_chat_session()` — scrapes chat rows, each a `<button>` whose text
+  is `"{username} , {status}"` (e.g. `"Anagha Hegde , New Snap"`, `"kiran ,
+  Received"`), confirmed via the same codegen session. Parsed via
+  `_parse_chat_row` into `{"username", "user_id", "preview", "timestamp",
+  "unread"}` dicts — `preview` is the raw status text, `timestamp` and
+  `unread` are `None` (no confirmed separate DOM elements for those yet).
 - `get_user_id(name)` / `get_user_id(index)` — resolve friend name or list
-  index to a stable user id (or best available handle — Snapchat's web UI
-  may not expose a raw numeric id, so define what "user_id" means here
-  early: username vs internal id).
+  index to an id.
 - `get_username(index)` — reverse lookup from list index.
-- Cache the friend/chat list per session to avoid re-scraping on every
-  call; add an explicit `refresh=True` option.
+- Cache the friend/chat list per session (`refresh=True` forces a re-scrape).
+- Gap: `ChatLocators.chat_list_item`/`chat_list_container` use a heuristic
+  (`button:has-text(",")`) rather than a real container/class selector —
+  works against the confirmed row shape but should be tightened via
+  `scripts/inspect_dom.py` if it ever matches unrelated buttons.
+  `chat_item_unread_marker`/`chat_item_user_id_attribute` and the Phase 3
+  message-thread locators are still `"TODO"`.
 
 ### Phase 3 — Messaging APIs
 - `send_msg(user_id, msg_txt)` — open conversation, send text, confirm
@@ -150,9 +166,14 @@ back into two if that's preferred.
 1. ~~Packaging tool: `uv`, `poetry`, or plain `pip` + `requirements.txt`?~~
    Resolved: `uv`.
 2. ~~Sync or async Playwright API?~~ Resolved: sync API.
-3. Definition of "user_id" — Snapchat username, or an internal id scraped
-   from the DOM/network responses? Still open — needs deciding before
-   Phase 2.
+3. ~~Definition of "user_id" — Snapchat username, or an internal id scraped
+   from the DOM/network responses?~~ Resolved: hybrid — every friend/chat
+   dict always carries `username`; `user_id` is populated opportunistically
+   only if `FriendsLocators.friend_user_id_attribute` /
+   `ChatLocators.chat_item_user_id_attribute` end up pointing at a real
+   data attribute once the DOM is inspected, else it's `None`.
+   `get_user_id()` returns `user_id` if present, else falls back to
+   `username`.
 4. ~~2FA on the target account — enabled? If so, `login()` needs a manual
    step or callback the first time.~~ Resolved: `login()` takes an
    `otp_callback` hook (defaults to a blocking stdin prompt); not yet

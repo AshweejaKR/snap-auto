@@ -16,8 +16,8 @@ from playwright.sync_api import (
 )
 
 from snap_auto.config import Config
-from snap_auto.exceptions import LoginFailedError
-from snap_auto.locators import LoginLocators
+from snap_auto.exceptions import LoginFailedError, UserNotFoundError
+from snap_auto.locators import ChatLocators, LoginLocators
 
 BASE_URL = "https://web.snapchat.com"
 
@@ -145,16 +145,95 @@ class SnapAutoClient:
     # -- Discovery (Phase 2) ----------------------------------------------
 
     def get_fnd_list(self, refresh: bool = False) -> list[dict]:
-        raise NotImplementedError
+        """Scrape the friends list into structured dicts, caching per session.
+
+        web.snapchat.com has no dedicated friends page, so this is derived from
+        get_all_chat_session() — every chat row is a friend. Each dict has
+        'username' (str) and 'user_id' (str, or None if no internal id is
+        discoverable — see ChatLocators.chat_item_user_id_attribute). This only
+        covers friends you have an existing chat with, not your full friend graph.
+        Pass refresh=True to force a re-scrape instead of returning the cached list.
+        """
+        if self._fnd_list_cache is not None and not refresh:
+            return self._fnd_list_cache
+
+        sessions = self.get_all_chat_session(refresh=refresh)
+        friends = [{"username": s["username"], "user_id": s["user_id"]} for s in sessions]
+        self._fnd_list_cache = friends
+        return friends
 
     def get_all_chat_session(self, refresh: bool = False) -> list[dict]:
-        raise NotImplementedError
+        """Scrape the chat/conversation list into structured dicts, caching per session.
+
+        Each row's accessible text is "{username} , {status}" (confirmed via a
+        live codegen session, e.g. "Anagha Hegde , New Snap"); see _parse_chat_row.
+        Each dict has 'username', 'user_id' (opportunistic, may be None), 'preview'
+        (the raw status text, e.g. "New Snap"/"Say Hi!"/"Received"), 'timestamp'
+        (None — no confirmed separate element yet), and 'unread' (None — no
+        confirmed presence-based marker yet; status text alone isn't a reliable
+        enough signal to turn into a bool). Pass refresh=True to force a re-scrape
+        instead of returning the cached list.
+        """
+        if self._chat_session_cache is not None and not refresh:
+            return self._chat_session_cache
+        self._require_started()
+        assert self._page is not None
+
+        self._click_if_present(ChatLocators.nav_button)
+        self._page.locator(ChatLocators.chat_list_container).first.wait_for(
+            timeout=DEFAULT_TIMEOUT_MS
+        )
+
+        items = self._page.locator(ChatLocators.chat_list_item)
+        sessions: list[dict] = []
+        for i in range(items.count()):
+            item = items.nth(i)
+            text = item.text_content()
+            if not text:
+                continue
+            username, status = self._parse_chat_row(text)
+            if not username:
+                continue
+            sessions.append(
+                {
+                    "username": username,
+                    "user_id": self._opportunistic_attr(
+                        item, ChatLocators.chat_item_user_id_attribute
+                    ),
+                    "preview": status or None,
+                    "timestamp": None,
+                    "unread": self._unread_state(item),
+                }
+            )
+
+        self._chat_session_cache = sessions
+        return sessions
 
     def get_user_id(self, name: str | None = None, index: int | None = None) -> str:
-        raise NotImplementedError
+        """Resolve a friend to an id: name lookup or list-index lookup (exactly one).
+
+        Returns the internal id if one was discoverable (see get_fnd_list), else
+        falls back to the username itself, since Snapchat's web UI doesn't reliably
+        expose a raw numeric id.
+        """
+        if (name is None) == (index is None):
+            raise ValueError("Provide exactly one of 'name' or 'index'.")
+
+        friends = self.get_fnd_list()
+        if index is not None:
+            friend = self._friend_at_index(friends, index)
+        else:
+            matches = [f for f in friends if f["username"] == name]
+            if not matches:
+                raise UserNotFoundError(f"No friend found with username {name!r}.")
+            friend = matches[0]
+
+        return friend["user_id"] or friend["username"]
 
     def get_username(self, index: int) -> str:
-        raise NotImplementedError
+        """Reverse lookup: friend list index -> username."""
+        friends = self.get_fnd_list()
+        return self._friend_at_index(friends, index)["username"]
 
     # -- Messaging (Phase 3) -----------------------------------------------
 
@@ -265,3 +344,50 @@ class SnapAutoClient:
         assert self._context is not None
         self.config.storage_state_path.parent.mkdir(parents=True, exist_ok=True)
         self._context.storage_state(path=str(self.config.storage_state_path))
+
+    def _click_if_present(self, selector: str) -> None:
+        """Best-effort nav click, mirroring _dismiss_post_login_interstitial: a no-op
+        if the selector is an unresolved TODO or the control isn't present (e.g. the
+        target view is already showing)."""
+        if selector == "TODO":
+            return
+        assert self._page is not None
+        control = self._page.locator(selector)
+        if control.count() > 0:
+            control.first.click()
+
+    def _text_or_none(self, locator: Locator) -> str | None:
+        if locator.count() == 0:
+            return None
+        text = locator.first.text_content()
+        return text.strip() if text else None
+
+    def _parse_chat_row(self, text: str) -> tuple[str, str]:
+        """Split a chat row's combined accessible text "{username} , {status}"
+        into its parts. Falls back to (text, "") if the separator isn't present,
+        so callers still get a username instead of dropping the row."""
+        username, sep, status = text.partition(" , ")
+        if not sep:
+            return text.strip(), ""
+        return username.strip(), status.strip()
+
+    def _opportunistic_attr(self, item: Locator, attribute: str) -> str | None:
+        """Best-effort scrape of an internal id from a data-* attribute on a list
+        item, if one has been identified and filled into locators.py. Returns None
+        (callers fall back to username as the id) until that TODO is resolved."""
+        if attribute == "TODO":
+            return None
+        return item.get_attribute(attribute)
+
+    def _unread_state(self, item: Locator) -> bool | None:
+        if ChatLocators.chat_item_unread_marker == "TODO":
+            return None
+        return item.locator(ChatLocators.chat_item_unread_marker).count() > 0
+
+    def _friend_at_index(self, friends: list[dict], index: int) -> dict:
+        try:
+            return friends[index]
+        except IndexError as exc:
+            raise UserNotFoundError(
+                f"No friend at index {index} (list has {len(friends)})."
+            ) from exc
