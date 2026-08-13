@@ -82,7 +82,21 @@ class ChatLocators:
     chat_item_user_id_attribute = "TODO"
     new_chat_button = 'role=button[name="New Chat"]'
     view_friend_requests_button = 'role=button[name="View friend requests"]'
-    # Message thread UI (Phase 3), not the chat list itself.
+    # Message thread UI (Phase 3), not the chat list itself. Unverified TODOs
+    # (no live account session has opened a conversation yet) — same status as
+    # LoginLocators.otp_input etc.: client.py's send/read logic is written
+    # against these names so only this file needs editing once real selectors
+    # are captured via scripts/inspect_dom.py.
     message_input = "TODO"
     send_button = "TODO"
     message_bubble = "TODO"
+    # Sub-fields of a single message_bubble. sender/timestamp are TODO scrape
+    # targets; text falls back to the bubble's raw text_content() in
+    # client.py if message_bubble_text stays unresolved.
+    message_bubble_sender = "TODO"
+    message_bubble_text = "TODO"
+    message_bubble_timestamp = "TODO"
+    # Presence-based read/seen indicator on a bubble (e.g. a "Delivered"/"Seen"
+    # label); count() > 0 means read. Mirrors chat_item_unread_marker's
+    # presence-based pattern.
+    message_bubble_read_marker = "TODO"

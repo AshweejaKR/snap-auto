@@ -104,14 +104,27 @@ start getting blocked or captcha'd.
   `chat_item_unread_marker`/`chat_item_user_id_attribute` and the Phase 3
   message-thread locators are still `"TODO"`.
 
-### Phase 3 — Messaging APIs
-- `send_msg(user_id, msg_txt)` — open conversation, send text, confirm
-  delivery (network response or DOM state, not a blind `sleep`).
-- `read_msg(user_id)` — open conversation, extract message(s), return
-  structured data (sender, text, timestamp, read/unread state).
-- Handle Snapchat-specific message semantics (chat messages can
-  disappear/expire after being opened — decide whether `read_msg` should
-  mark-as-read or attempt a non-destructive read).
+### Phase 3 — Messaging APIs ✅ Implemented, unverified (no live conversation opened yet)
+- `send_msg(user_id, msg_txt)` — resolves `user_id` (id or username) via
+  `get_fnd_list()`, opens the matching chat row (`_open_conversation`),
+  fills/submits the message input, and confirms delivery by polling DOM
+  state (`_confirm_message_sent`: compose box cleared + a new message bubble
+  landed) instead of a blind `sleep`. Returns `False` (not an exception) on
+  an unconfirmed timeout, since the message may still have sent.
+- `read_msg(user_id)` — opens the conversation and returns every currently
+  rendered message bubble as `{"sender", "text", "timestamp", "read"}`
+  (`_parse_message_bubble`); `text` falls back to raw bubble text if the
+  sub-selector is unresolved, `read` is `None` until a read-marker selector
+  is confirmed.
+- Snapchat-specific disappearing-message semantics: resolved as
+  non-destructive for now — `read_msg` only opens the conversation and reads
+  whatever is currently rendered, without clicking into individual messages,
+  so it doesn't itself trigger mark-as-read/expiry beyond that.
+- Gap: `ChatLocators.message_input`/`send_button`/`message_bubble` and its
+  `sender`/`text`/`timestamp`/`read_marker` sub-fields are all still
+  `"TODO"` placeholders — no real account session has opened a message
+  thread yet. Next step is a codegen session against a real conversation to
+  fill these in, the same way Phase 2's chat-list selectors were confirmed.
 
 ### Phase 4 — Reliability & anti-detection
 - Migrate to Patchright if not already needed by Phase 1.

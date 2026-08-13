@@ -16,7 +16,7 @@ from playwright.sync_api import (
 )
 
 from snap_auto.config import Config
-from snap_auto.exceptions import LoginFailedError, UserNotFoundError
+from snap_auto.exceptions import LoginFailedError, SelectorNotFoundError, UserNotFoundError
 from snap_auto.locators import ChatLocators, LoginLocators
 
 BASE_URL = "https://web.snapchat.com"
@@ -238,10 +238,50 @@ class SnapAutoClient:
     # -- Messaging (Phase 3) -----------------------------------------------
 
     def send_msg(self, user_id: str, msg_txt: str) -> bool:
-        raise NotImplementedError
+        """Open the conversation with user_id (username or resolved id), send
+        msg_txt, and confirm delivery via DOM state (input cleared + a new
+        message bubble landed) rather than a blind sleep.
+
+        Returns True if delivery was confirmed within DEFAULT_TIMEOUT_MS, False
+        otherwise (message may or may not have actually sent - caller should
+        treat False as "unconfirmed", not necessarily "failed").
+        """
+        self._require_started()
+        assert self._page is not None
+
+        self._open_conversation(user_id)
+
+        message_input = self._page.locator(ChatLocators.message_input).first
+        message_input.click()
+        message_input.fill(msg_txt)
+
+        bubbles_before = self._page.locator(ChatLocators.message_bubble).count()
+        self._page.locator(ChatLocators.send_button).first.click()
+
+        return self._confirm_message_sent(message_input, bubbles_before)
 
     def read_msg(self, user_id: str) -> list[dict]:
-        raise NotImplementedError
+        """Open the conversation with user_id (username or resolved id) and
+        return its visible messages as structured dicts: 'sender', 'text',
+        'timestamp', 'read' (bool, or None if no read-marker element is
+        confirmed - see ChatLocators.message_bubble_read_marker).
+
+        Note: Snapchat chat messages can disappear/expire once opened. This
+        reads whatever is currently rendered without taking any action beyond
+        opening the conversation, so it doesn't itself trigger a mark-as-read.
+        """
+        self._require_started()
+        assert self._page is not None
+
+        self._open_conversation(user_id)
+
+        bubbles = self._page.locator(ChatLocators.message_bubble)
+        try:
+            bubbles.first.wait_for(timeout=DEFAULT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            return []
+
+        return [self._parse_message_bubble(bubbles.nth(i)) for i in range(bubbles.count())]
 
     # -- internal helpers ---------------------------------------------------
 
@@ -383,6 +423,71 @@ class SnapAutoClient:
         if ChatLocators.chat_item_unread_marker == "TODO":
             return None
         return item.locator(ChatLocators.chat_item_unread_marker).count() > 0
+
+    def _open_conversation(self, user_id: str) -> None:
+        """Resolve user_id (an id or, per get_user_id's fallback, a username) to
+        a friend, click their chat-list row, and wait for the message thread to
+        open."""
+        assert self._page is not None
+
+        friends = self.get_fnd_list()
+        matches = [f for f in friends if f["user_id"] == user_id or f["username"] == user_id]
+        if not matches:
+            raise UserNotFoundError(f"No friend found for user_id/username {user_id!r}.")
+        username = matches[0]["username"]
+
+        self._click_if_present(ChatLocators.nav_button)
+        items = self._page.locator(ChatLocators.chat_list_item)
+        for i in range(items.count()):
+            item = items.nth(i)
+            row_username, _ = self._parse_chat_row(item.text_content() or "")
+            if row_username == username:
+                item.click()
+                break
+        else:
+            raise UserNotFoundError(f"No chat row found for username {username!r}.")
+
+        try:
+            self._page.locator(ChatLocators.message_input).first.wait_for(timeout=DEFAULT_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            raise SelectorNotFoundError(
+                "Conversation view did not open (message input not found)."
+            ) from exc
+
+    def _confirm_message_sent(
+        self, message_input: Locator, bubbles_before: int, timeout_ms: int = DEFAULT_TIMEOUT_MS
+    ) -> bool:
+        """Poll DOM state instead of sleeping a fixed amount: delivery counts as
+        confirmed once the compose box has cleared itself AND a new bubble has
+        landed in the thread (both are how web.snapchat.com's optimistic-send UI
+        is expected to behave; revisit if either signal proves unreliable)."""
+        assert self._page is not None
+        poll_interval_ms = 250
+        deadline = time.monotonic() + timeout_ms / 1000
+        while time.monotonic() < deadline:
+            input_cleared = (message_input.input_value() or "") == ""
+            bubble_added = self._page.locator(ChatLocators.message_bubble).count() > bubbles_before
+            if input_cleared and bubble_added:
+                return True
+            self._page.wait_for_timeout(poll_interval_ms)
+        return False
+
+    def _parse_message_bubble(self, bubble: Locator) -> dict:
+        text = self._text_or_none(bubble.locator(ChatLocators.message_bubble_text))
+        if text is None:
+            raw = bubble.text_content()
+            text = raw.strip() if raw else None
+        return {
+            "sender": self._text_or_none(bubble.locator(ChatLocators.message_bubble_sender)),
+            "text": text,
+            "timestamp": self._text_or_none(bubble.locator(ChatLocators.message_bubble_timestamp)),
+            "read": self._bubble_read_state(bubble),
+        }
+
+    def _bubble_read_state(self, bubble: Locator) -> bool | None:
+        if ChatLocators.message_bubble_read_marker == "TODO":
+            return None
+        return bubble.locator(ChatLocators.message_bubble_read_marker).count() > 0
 
     def _friend_at_index(self, friends: list[dict], index: int) -> dict:
         try:
