@@ -136,6 +136,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Playwright saved session state (cookies/localStorage)
+.auth/
+
 # Spyder project settings
 .spyderproject
 .spyproject
