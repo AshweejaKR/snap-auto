@@ -43,7 +43,7 @@ start getting blocked or captcha'd.
 
 ## Milestones
 
-### Phase 0 — Project setup
+### Phase 0 — Project setup ✅ Done
 - Confirm packaging tool (`uv` recommended for speed, else `poetry`) —
   ask user if not already decided.
 - `pyproject.toml`, install `playwright`, run `playwright install
@@ -61,7 +61,7 @@ start getting blocked or captcha'd.
   plan.md
   ```
 
-### Phase 1 — Session & auth
+### Phase 1 — Session & auth ✅ Done, verified end-to-end against a real account
 - `login(username, password)` — navigate, fill credentials, handle 2FA/OTP
   prompt (likely needs a manual/callback hook since OTP can't be scraped),
   save `storage_state`.
@@ -71,6 +71,11 @@ start getting blocked or captcha'd.
 - `logout()` — click through logout flow, clear stored session state.
 - Decide and document how repeated runs reuse a saved session vs. force a
   fresh login.
+- Remaining gaps: `otp_input`/`otp_submit_button`/`login_error_banner`
+  selectors are still unverified (no real OTP challenge or rejected login
+  hit yet), and the username-step submit button selector is a best-effort
+  guess since Snapchat's web login shows inconsistent field labels/languages
+  and button text ("Log in" vs "Next") across sessions.
 
 ### Phase 2 — Discovery APIs
 - `get_fnd_list()` — scrape the friends list.
@@ -142,11 +147,16 @@ back into two if that's preferred.
 
 ## Open questions for user
 
-1. Packaging tool: `uv`, `poetry`, or plain `pip` + `requirements.txt`?
-2. Sync or async Playwright API?
+1. ~~Packaging tool: `uv`, `poetry`, or plain `pip` + `requirements.txt`?~~
+   Resolved: `uv`.
+2. ~~Sync or async Playwright API?~~ Resolved: sync API.
 3. Definition of "user_id" — Snapchat username, or an internal id scraped
-   from the DOM/network responses?
-4. 2FA on the target account — enabled? If so, `login()` needs a manual
-   step or callback the first time.
-5. Is a personal test account available to develop/test against, separate
-   from any production account?
+   from the DOM/network responses? Still open — needs deciding before
+   Phase 2.
+4. ~~2FA on the target account — enabled? If so, `login()` needs a manual
+   step or callback the first time.~~ Resolved: `login()` takes an
+   `otp_callback` hook (defaults to a blocking stdin prompt); not yet
+   exercised against a real challenge.
+5. ~~Is a personal test account available to develop/test against, separate
+   from any production account?~~ Resolved: yes, in use for Phase 1
+   testing.
