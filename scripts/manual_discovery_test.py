@@ -6,10 +6,9 @@ with:
 
     uv run python scripts/manual_discovery_test.py
 
-Note: chat_list_container/chat_list_item use a confirmed heuristic selector
-(button:has-text(",")) and username/preview should scrape correctly, but
-user_id/timestamp/unread are still TODO placeholders (see locators.py) and will
-come back as None until those sub-elements are identified against the real DOM.
+The scan walks Snapchat Web's virtualized sidebar. ``user_id`` is the stable
+conversation id when the DOM exposes ``title-<id>`` or ``/web/<id>``; legacy rows
+fall back to the username.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 
 def main() -> None:
     with SnapAutoClient() as client:
-        client.login(client.config.username, client.config.password)
+        client.login()
 
         friends = client.get_fnd_list()
         print(f"Friends ({len(friends)}):", friends)
@@ -34,10 +33,13 @@ def main() -> None:
         if friends:
             print("get_username(0):", client.get_username(0))
             print("get_user_id(index=0):", client.get_user_id(index=0))
-            print("get_user_id(name=...):", client.get_user_id(name=friends[0]["username"]))
+            print(
+                "get_user_id(name=...):",
+                client.get_user_id(name=friends[0]["username"]),
+            )
 
-        # Cache should short-circuit a second call; refresh=True forces a re-scrape.
-        print("Cached fnd_list is same object:", client.get_fnd_list() is friends)
+        # Cached calls return defensive copies; refresh=True forces a re-scrape.
+        print("Cached fnd_list has same values:", client.get_fnd_list() == friends)
         client.get_fnd_list(refresh=True)
 
 

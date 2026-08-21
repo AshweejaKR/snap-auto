@@ -1,0 +1,67 @@
+{
+  "chat_rows": [
+    {
+      "raw_text": "Alice Example New Snap 10:15 AM",
+      "aria_labelledby": "avatar-c1 title-c1 status-c1",
+      "title_element_id": "title-c1",
+      "href": "/web/c1",
+      "username": "Alice Example",
+      "status": "New Snap",
+      "aria_label": "Alice Example unread",
+      "class_name": "conversation-row unread",
+      "expected_id": "c1",
+      "expected_unread": true
+    },
+    {
+      "raw_text": "legacy_user , Received",
+      "aria_labelledby": null,
+      "title_element_id": null,
+      "href": null,
+      "username": "legacy_user",
+      "status": "Received",
+      "aria_label": null,
+      "class_name": null,
+      "expected_id": null,
+      "expected_unread": null
+    }
+  ],
+  "messages": [
+    {
+      "raw_text": "Me Hello from snap-auto Seen",
+      "sender": "Me",
+      "text_candidates": ["Hello from snap-auto"],
+      "timestamp": "2026-08-21T10:15:00+05:30",
+      "marker_text": "Seen",
+      "has_media": false,
+      "expected": {
+        "sender": "You",
+        "text": "Hello from snap-auto",
+        "timestamp": "2026-08-21T10:15:00+05:30",
+        "read": true
+      }
+    },
+    {
+      "raw_text": "Alice Example Delivered photo",
+      "sender": "Alice Example",
+      "text_candidates": [],
+      "timestamp": null,
+      "marker_text": null,
+      "has_media": true,
+      "expected": {
+        "sender": "Alice Example",
+        "text": "Delivered photo",
+        "timestamp": null,
+        "read": null
+      }
+    },
+    {
+      "raw_text": "Today",
+      "sender": null,
+      "text_candidates": ["Today"],
+      "timestamp": null,
+      "marker_text": null,
+      "has_media": false,
+      "expected": null
+    }
+  ]
+}

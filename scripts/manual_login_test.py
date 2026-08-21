@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 
 def main() -> None:
     with SnapAutoClient() as client:
-        client.login(client.config.username, client.config.password)
+        client.login()
         print("verify_login:", client.verify_login())
 
         client.logout()

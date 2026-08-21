@@ -1,41 +1,35 @@
-"""Interactive helper for filling in FriendsLocators/ChatLocators (Phase 2).
+"""Open Playwright Inspector to diagnose Snapchat Web selector drift.
 
-Logs in, then opens the Playwright Inspector attached to the live,
-authenticated page so you can use its "Pick locator" tool to find real
-selectors for the friends list and chat list. Run headed:
+Run headed with credentials configured in ``.env``:
 
-    set SNAP_HEADLESS=false
-    python scripts/inspect_dom.py
+    SNAP_HEADLESS=false uv run python scripts/inspect_dom.py
 
-In the Inspector window: click "Pick locator", then hover/click elements in
-the browser window (friend list container, one friend row, the friend's name
-text, the chat list container, one chat row, etc). Copy each suggested
-selector into the matching field in snap_auto/locators.py, then close the
-Inspector (resume) to let the script exit.
+In the Inspector, use "Pick locator" on the failing chat-list or message-thread
+element. Prefer semantic roles, aria attributes, element ids, or test ids, then add
+the new selector as an ordered fallback in ``snap_auto/locators.py``.
 
-Tip: also check the Elements/Network tabs in the browser's own devtools
-(F12) while paused — e.g. to see if a friend/chat row has a data-* attribute
-holding an internal id (for friend_user_id_attribute /
-chat_item_user_id_attribute), or a distinguishing dot/class for unread state.
+Failure screenshots/HTML are written to ``.snap-auto-artifacts/`` by default.
+Those files can contain private chat content and must never be committed.
 """
 
 from __future__ import annotations
 
 import logging
 
-from snap_auto.client import SnapAutoClient
+from snap_auto import SnapAutoClient
 
 logging.basicConfig(level=logging.INFO)
 
 
 def main() -> None:
     with SnapAutoClient() as client:
-        client.login(client.config.username, client.config.password)
+        client.login()
         print(
-            "Logged in. Opening Playwright Inspector — use 'Pick locator' to find "
-            "selectors, then resume/close it to end the script."
+            "Logged in. Opening Playwright Inspector — use 'Pick locator', then "
+            "resume/close it to end the script."
         )
-        client._page.pause()  # type: ignore[union-attr]
+        assert client._page is not None
+        client._page.pause()
 
 
 if __name__ == "__main__":

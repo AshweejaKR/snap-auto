@@ -4,7 +4,7 @@ Repository guidance for coding agents working on `snap-auto`.
 
 ## Project status
 
-`snap-auto` is a synchronous Python/Playwright client for Snapchat Web. Phases 0–4
+`snap-auto` is a synchronous Python/Playwright client for Snapchat Web. Phases 0–5
 of `plan.md` are implemented on this branch:
 
 - Project/package setup uses `uv`, Python 3.11+, and Playwright Chromium.
@@ -20,9 +20,9 @@ of `plan.md` are implemented on this branch:
   operations, paced actions, HTTP 429 handling, IndexedDB-aware saved state, and
   private screenshot/HTML/metadata artifacts on unexpected failures.
 
-No live credentials or saved browser state are committed. A live message-send test
-must always use a dedicated test account and an explicitly chosen recipient; unit
-tests and CI are Phase 5.
+No live credentials or saved browser state are committed. Offline parsing, config,
+cache, retry, rate-limit, messaging-flow, diagnostics, and persistence tests run in
+CI across Python 3.11–3.13. Live tests remain explicitly gated.
 
 ## Tooling
 
@@ -39,6 +39,7 @@ uv run python -c "import snap_auto"
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
+uv build
 ```
 
 Copy `.env.example` to `.env` for live-account work. Never hardcode, print, log, or
@@ -55,7 +56,7 @@ commit credentials, storage state, screenshots, or DOM dumps.
 - `snap_auto/config.py` — immutable environment-backed configuration.
 - `snap_auto/exceptions.py` — exception hierarchy rooted at `SnapAutoError`.
 - `scripts/` — explicitly invoked live/manual helpers.
-- `tests/` — offline unit tests plus opt-in live tests (Phase 5).
+- `tests/` — offline unit tests plus separately gated live and live-send tests.
 
 Saved session state lives under `.auth/`. Failure artifacts live under
 `.snap-auto-artifacts/`; both are gitignored and may contain sensitive account/chat

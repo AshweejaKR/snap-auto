@@ -125,14 +125,16 @@ account manually rather than trying to bypass the protection.
 - Centralized exception types (`LoginFailedError`, `SessionExpiredError`,
   `SelectorNotFoundError`, `RateLimitedError`, etc.).
 
-### Phase 5 — Testing & docs
-- Unit tests for parsing/mapping logic (friend list → id, etc.) using
-  saved HTML fixtures — no live account needed.
-- A small number of opt-in integration tests that run against a real test
-  account (guarded behind an env flag, not run in normal CI).
-- Update `CLAUDE.md` with real build/lint/test commands once the packaging
-  tool is chosen and structure exists (per its own instructions).
-- README usage example for the 10 core methods.
+### Phase 5 — Testing & docs ✅ Done
+- Offline unit tests cover saved DOM snapshots, parsing/mapping, configuration,
+  caching, virtualized scan deduplication, retry exhaustion, 429 handling,
+  single-submit messaging, Enter fallback, diagnostics, and session persistence.
+- Live login/discovery tests require `SNAP_RUN_LIVE_TESTS=1`; sending additionally
+  requires `SNAP_RUN_LIVE_SEND_TEST=1`, an exact recipient, and a message.
+- GitHub Actions runs lock verification, Ruff, formatting, and pytest across Python
+  3.11–3.13 without accessing Snapchat.
+- README and `CLAUDE.md` document installation, all core methods, data shapes,
+  safety gates, limitations, and selector-drift troubleshooting.
 
 ### Phase 6 — Stretch (after core API is solid)
 - Send/receive images or Snaps (may require Appium/mobile if web app
