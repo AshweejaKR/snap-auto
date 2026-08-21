@@ -1,102 +1,140 @@
-"""CSS/text selectors for web.snapchat.com, isolated from page logic.
+"""Central selector candidates for Snapchat Web.
 
-Page Object Model: UI changes should only ever require editing this file,
-not client.py. Values below are placeholders pending Phase 1 DOM inspection.
+Selectors are ordered from semantic/stable to compatibility fallback. The client
+chooses the first visible match, which lets it support both ``www.snapchat.com/web``
+and the older ``web.snapchat.com`` UI without scattering selectors through logic.
 """
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+SelectorSpec = str | Sequence[str]
 
 
 class LoginLocators:
-    # Login is a multi-step wizard: a username-only page, then (after
-    # submitting) a separate navigation to a password-only page.
-    #
-    # The username step's UI is NOT stable across sessions: two consecutive
-    # logins recorded in the same codegen run showed the username field's
-    # accessible name in both English ("Username or email address" /
-    # "Username or Email") and Hindi ("यूज़रनेम या ईमेल पता"), and the
-    # submit button's label as both "Log in" and "Next" (likely locale
-    # detection / A/B variants). Selectors below deliberately avoid matching
-    # on that translated text.
-    username_input = "role=textbox"  # only one textbox on this page, regardless of label language
-    username_submit_button = 'button[type="submit"]'  # best-effort guess independent of "Log in"/"Next" label; re-check via devtools if login stalls here
-    password_input = 'role=textbox[name="Password"]'
-    password_submit_button = '[data-testid="password-submit-button"]'
-    # Post-login nag screen (e.g. "turn on notifications?") seen on at least
-    # one account; dismissed best-effort, not required for login to count as
-    # successful.
-    post_login_dismiss_button = 'role=button[name="Not now"]'
-    # Not yet observed against a real account (this test account has no 2FA
-    # challenge) — fill in once a login actually triggers one.
-    otp_input = "TODO"
-    otp_submit_button = "TODO"
-    login_error_banner = "TODO"
-    # Profile/avatar button in the top bar; present only when logged in, and
-    # doubles as the trigger that opens the menu containing "Log Out". Class
-    # name looks like a generated/hashed CSS-module identifier (".Titq2") —
-    # fragile across deploys; re-capture via codegen if this starts failing.
-    logged_in_marker = ".Titq2"
-    account_menu_button = ".Titq2"
-    logout_button = 'a:has-text("Log Out")'
+    username_input = (
+        'input[autocomplete="username"]',
+        'input[name*="user" i]',
+        'input[type="email"]',
+        'input[type="text"]',
+        "role=textbox",
+    )
+    username_submit_button = (
+        '[data-testid*="username" i][type="submit"]',
+        '[data-testid*="login" i][type="submit"]',
+        'button[type="submit"]',
+    )
+    password_input = (
+        'input[autocomplete="current-password"]',
+        'input[type="password"]',
+        "role=textbox[name=/password/i]",
+    )
+    password_submit_button = (
+        '[data-testid="password-submit-button"]',
+        '[data-testid*="password" i][type="submit"]',
+        'button[type="submit"]',
+    )
+    post_login_dismiss_button = (
+        "role=button[name=/not now/i]",
+        'button:has-text("Not now")',
+    )
+    otp_input = (
+        'input[autocomplete="one-time-code"]',
+        'input[inputmode="numeric"]',
+        'input[name*="code" i]',
+        'input[data-testid*="otp" i]',
+    )
+    otp_submit_button = (
+        '[data-testid*="otp" i][type="submit"]',
+        '[data-testid*="code" i][type="submit"]',
+        'button[type="submit"]',
+    )
+    login_error_banner = (
+        '[role="alert"]',
+        '[aria-live="assertive"]',
+        '[data-testid*="error" i]',
+        "text=/incorrect|invalid|could not|try again|something went wrong/i",
+    )
+    logged_in_marker = (
+        '[role="button"][aria-labelledby*="title-"]',
+        '[role="link"][aria-labelledby*="title-"]',
+        '[aria-label*="new chat" i]',
+        '[placeholder*="search" i]',
+        ".Titq2",
+    )
+    account_menu_button = (
+        'button[aria-label*="profile" i]',
+        'button[aria-label*="bitmoji" i]',
+        '[role="button"][aria-label*="account" i]',
+        ".Titq2",
+    )
+    logout_button = (
+        'a[href*="logout" i]',
+        "role=button[name=/log out|logout/i]",
+        "role=link[name=/log out|logout/i]",
+        'a:has-text("Log Out")',
+    )
 
 
 class FriendsLocators:
-    """web.snapchat.com has no dedicated friends page (confirmed via a Playwright
-    codegen session against a real, logged-in account): every friend appears as a
-    row in the chat list instead. get_fnd_list() in client.py derives its dicts
-    from ChatLocators.chat_list_item rather than a separate selector set, so this
-    class intentionally has no fields. If a broader friend source shows up later
-    (e.g. the "New Chat" dialog's contact picker, which the same codegen session
-    touched via a still-unlabeled search box and `div.nth(3)` result — too fragile
-    to use as-is), add selectors here then.
-    """
+    """Friends are derived from chats; Snapchat Web has no full friends page."""
 
 
 class ChatLocators:
-    # Confirmed via Playwright codegen against a real, logged-in session: every
-    # chat/friend row on the default view is a <button> whose accessible name
-    # (and text content) is "{username} , {status}", e.g. "Anagha Hegde , New
-    # Snap", "kiran , Received", "Simple_02 , New Snap on mobile". client.py
-    # splits that combined text on " , " (see _parse_chat_row) rather than
-    # scraping username/preview from separate sub-elements, since no distinct
-    # sub-selectors are confirmed yet. There's no evidence of a separate nav tab
-    # for the chat list (it appears to be the default view after login), so
-    # nav_button is left as a no-op TODO.
-    nav_button = "TODO"
-    # `:has-text(",")` is a heuristic: every observed chat row's accessible name
-    # contains " , ", and neither "New Chat" nor "View friend requests" (the
-    # other buttons seen in the same session) do. Re-tighten with a real
-    # container/class selector (via scripts/inspect_dom.py) if this starts
-    # matching unrelated buttons.
-    chat_list_container = 'button:has-text(",")'
-    chat_list_item = 'button:has-text(",")'
-    # Row text is "{username} , {status}", parsed in client.py — no confirmed
-    # separate DOM elements for these yet.
-    chat_item_username = "TODO"
-    chat_item_preview = "TODO"
-    chat_item_timestamp = "TODO"
-    # Presence-based (e.g. an unread-dot element); count() > 0 means unread.
-    # Status text alone ("New Snap" vs "Received") might imply unread state, but
-    # that's a product-semantics guess, not a confirmed DOM signal — left TODO.
-    chat_item_unread_marker = "TODO"
-    # Opportunistic: name of a data-* attribute (e.g. "data-user-id") on
-    # chat_list_item that exposes an internal id, if the DOM has one at all.
-    chat_item_user_id_attribute = "TODO"
-    new_chat_button = 'role=button[name="New Chat"]'
-    view_friend_requests_button = 'role=button[name="View friend requests"]'
-    # Message thread UI (Phase 3), not the chat list itself. Unverified TODOs
-    # (no live account session has opened a conversation yet) — same status as
-    # LoginLocators.otp_input etc.: client.py's send/read logic is written
-    # against these names so only this file needs editing once real selectors
-    # are captured via scripts/inspect_dom.py.
-    message_input = "TODO"
-    send_button = "TODO"
-    message_bubble = "TODO"
-    # Sub-fields of a single message_bubble. sender/timestamp are TODO scrape
-    # targets; text falls back to the bubble's raw text_content() in
-    # client.py if message_bubble_text stays unresolved.
-    message_bubble_sender = "TODO"
-    message_bubble_text = "TODO"
-    message_bubble_timestamp = "TODO"
-    # Presence-based read/seen indicator on a bubble (e.g. a "Delivered"/"Seen"
-    # label); count() > 0 means read. Mirrors chat_item_unread_marker's
-    # presence-based pattern.
-    message_bubble_read_marker = "TODO"
+    nav_button = (
+        'a[href$="/web"]',
+        "role=button[name=/chat|chats/i]",
+    )
+    search_input = (
+        'input[role="searchbox"]',
+        '[role="searchbox"] input',
+        'input[aria-label*="search" i]',
+        'input[placeholder*="search" i]',
+    )
+    chat_list_item = (
+        '[role="button"][aria-labelledby*="title-"]',
+        '[role="link"][aria-labelledby*="title-"]',
+        'button:has-text(",")',
+    )
+    chat_list_dom_selector = (
+        '[role="button"][aria-labelledby*="title-"]'
+        ', [role="link"][aria-labelledby*="title-"]'
+    )
+    chat_item_username = 'span[id^="title-"]'
+    chat_item_preview = '[id^="status-"]'
+    chat_item_timestamp = "time"
+    chat_item_unread_marker = (
+        '[aria-label*="unread" i]',
+        '[class*="unread" i]',
+    )
+    new_chat_button = "role=button[name=/new chat/i]"
+    view_friend_requests_button = "role=button[name=/view friend requests/i]"
+
+    conversation_root = 'ul[id^="cv-"]'
+    message_input = (
+        '[contenteditable="true"][aria-label*="chat" i]',
+        '[contenteditable="true"][data-placeholder*="chat" i]',
+        'textarea[aria-label*="chat" i]',
+        'input[aria-label*="chat" i]',
+        '[contenteditable="true"]',
+    )
+    send_button = (
+        'button[aria-label*="send" i]',
+        '[role="button"][aria-label*="send" i]',
+        'button[title*="send" i]',
+    )
+    message_bubble = 'ul[id^="cv-"] > li'
+    message_bubble_sender = "header"
+    message_bubble_text = (
+        '[dir="auto"]',
+        '[data-testid*="message" i]',
+    )
+    message_bubble_timestamp = "time"
+    message_bubble_read_marker = (
+        '[aria-label*="seen" i]',
+        '[aria-label*="opened" i]',
+        '[aria-label*="delivered" i]',
+        "text=/seen|opened|read|delivered|sent/i",
+    )
+    message_media = "img, video, canvas"

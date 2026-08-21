@@ -3,27 +3,27 @@
 ## Overview
 
 Python client for automating Snapchat via browser automation against
-`web.snapchat.com` (the official Snapchat web app). Built incrementally,
+`www.snapchat.com/web` and its `web.snapchat.com` compatibility host. Built incrementally,
 phase by phase, starting with the 10 core methods below.
 
 **Caveat (read once, move on):** this automates a consumer product with no
 public personal-account API, so it relies on scraping a UI that changes
-often and actively fights bots. Expect selector breakage over time and
-build in the resilience/anti-detection work (Phase 4) rather than skipping
-it — accounts can be flagged or locked for automated behavior that doesn't
-look human.
+often. Expect selector breakage over time and keep the Phase 4 reliability,
+rate-limit handling, and diagnostics intact. Accounts can be flagged or locked
+for high-volume or abusive automation, so use a dedicated test account and keep
+actions conservative.
 
 ## Framework decision
 
 | Option | Verdict |
 |---|---|
 | **Playwright (Python), sync or async API** | **Recommended.** Auto-waiting, network interception (useful for detecting message-sent/read events instead of polling the DOM), codegen for finding selectors fast, one API across Chromium/Firefox/WebKit. |
-| **Patchright** (drop-in Playwright fork with anti-detection patches) | **Recommended upgrade once Phase 1 works.** Patches the CDP-detectable fingerprints stock Playwright leaves behind (the biggest reason Playwright sessions get flagged by bot-detection like PerimeterX/Akamai, which Snap likely fronts its web app with). Same API — swap the import once login starts getting challenged. |
+| Patchright or stealth patches | Not used. Reliability here must not depend on bypassing platform bot protections. |
 | Selenium | Slower, more boilerplate for waits, no built-in network interception. No advantage here. |
 | Appium (mobile) | Only needed if `web.snapchat.com` is missing a feature you require (e.g. Snap/story sending) that's mobile-only. Treat as a fallback, not the starting point. |
 
-Start with Playwright; move to Patchright the moment login/session checks
-start getting blocked or captcha'd.
+Use stock Playwright. If Snapchat challenges or blocks a session, stop and use the
+account manually rather than trying to bypass the protection.
 
 ## Architecture
 
@@ -71,13 +71,11 @@ start getting blocked or captcha'd.
 - `logout()` — click through logout flow, clear stored session state.
 - Decide and document how repeated runs reuse a saved session vs. force a
   fresh login.
-- Remaining gaps: `otp_input`/`otp_submit_button`/`login_error_banner`
-  selectors are still unverified (no real OTP challenge or rejected login
-  hit yet), and the username-step submit button selector is a best-effort
-  guess since Snapchat's web login shows inconsistent field labels/languages
-  and button text ("Log in" vs "Next") across sessions.
+- OTP/error states use ordered semantic fallbacks (`autocomplete=one-time-code`,
+  alert/live-region/test-id selectors). The earlier live account did not present
+  an OTP challenge, so that path still requires an opt-in live test when available.
 
-### Phase 2 — Discovery APIs ✅ Implemented, chat list selectors confirmed via codegen; sub-fields still unresolved
+### Phase 2 — Discovery APIs ✅ Implemented
 - `get_fnd_list()` — web.snapchat.com has **no dedicated friends page**
   (confirmed via a Playwright codegen session against a real, logged-in
   account); every friend appears as a row in the chat list instead. Derived
@@ -87,51 +85,44 @@ start getting blocked or captcha'd.
   codegen session but its selectors (an unlabeled search box, `div.nth(3)`)
   are too fragile to use as-is; revisit if the chat-list-derived list proves
   insufficient.
-- `get_all_chat_session()` — scrapes chat rows, each a `<button>` whose text
-  is `"{username} , {status}"` (e.g. `"Anagha Hegde , New Snap"`, `"kiran ,
-  Received"`), confirmed via the same codegen session. Parsed via
-  `_parse_chat_row` into `{"username", "user_id", "preview", "timestamp",
-  "unread"}` dicts — `preview` is the raw status text, `timestamp` and
-  `unread` are `None` (no confirmed separate DOM elements for those yet).
+- `get_all_chat_session()` — scans the virtualized sidebar to its bottom and
+  parses semantic `title-*`, `status-*`, `time`, `aria-*`, and `/web/<id>`
+  attributes into `{"username", "user_id", "preview", "timestamp", "unread"}`.
+  The earlier live-confirmed `"{username} , {status}"` row parser remains as a
+  compatibility fallback.
 - `get_user_id(name)` / `get_user_id(index)` — resolve friend name or list
   index to an id.
 - `get_username(index)` — reverse lookup from list index.
 - Cache the friend/chat list per session (`refresh=True` forces a re-scrape).
-- Gap: `ChatLocators.chat_list_item`/`chat_list_container` use a heuristic
-  (`button:has-text(",")`) rather than a real container/class selector —
-  works against the confirmed row shape but should be tightened via
-  `scripts/inspect_dom.py` if it ever matches unrelated buttons.
-  `chat_item_unread_marker`/`chat_item_user_id_attribute` and the Phase 3
-  message-thread locators are still `"TODO"`.
+- `user_id` is the stable conversation id from `title-<id>` or `/web/<id>` when
+  available; it falls back to the username only for legacy rows without an id.
 
-### Phase 3 — Messaging APIs ✅ Implemented, unverified (no live conversation opened yet)
+### Phase 3 — Messaging APIs ✅ Implemented
 - `send_msg(user_id, msg_txt)` — resolves `user_id` (id or username) via
   `get_fnd_list()`, opens the matching chat row (`_open_conversation`),
-  fills/submits the message input, and confirms delivery by polling DOM
-  state (`_confirm_message_sent`: compose box cleared + a new message bubble
-  landed) instead of a blind `sleep`. Returns `False` (not an exception) on
-  an unconfirmed timeout, since the message may still have sent.
+  opens `/web/<conversation-id>` with sidebar/search fallback, fills the semantic
+  contenteditable/textbox composer, submits once by send button or Enter, and
+  confirms it from the outgoing message/composer state. Returns `False` (not an
+  exception) on an unconfirmed timeout, since the message may still have sent.
 - `read_msg(user_id)` — opens the conversation and returns every currently
   rendered message bubble as `{"sender", "text", "timestamp", "read"}`
-  (`_parse_message_bubble`); `text` falls back to raw bubble text if the
-  sub-selector is unresolved, `read` is `None` until a read-marker selector
-  is confirmed.
+  (`_parse_message_bubble`) from `ul[id^="cv-"] > li`; media-only entries use
+  `[Media]`, and read/delivery markers map to a tri-state value.
 - Snapchat-specific disappearing-message semantics: resolved as
   non-destructive for now — `read_msg` only opens the conversation and reads
   whatever is currently rendered, without clicking into individual messages,
   so it doesn't itself trigger mark-as-read/expiry beyond that.
-- Gap: `ChatLocators.message_input`/`send_button`/`message_bubble` and its
-  `sender`/`text`/`timestamp`/`read_marker` sub-fields are all still
-  `"TODO"` placeholders — no real account session has opened a message
-  thread yet. Next step is a codegen session against a real conversation to
-  fill these in, the same way Phase 2's chat-list selectors were confirmed.
+- The send path is intentionally not auto-retried after submission, preventing an
+  unconfirmed response from creating duplicate messages.
 
-### Phase 4 — Reliability & anti-detection
-- Migrate to Patchright if not already needed by Phase 1.
-- Retry/backoff wrapper for flaky selectors.
-- Human-like delays/jitter between actions (avoid fixed sleeps; randomize).
-- Screenshot + DOM dump on failure for debugging selector drift.
-- Centralized exception types (`LoginFailedError`,
+### Phase 4 — Reliability & account safety ✅ Done
+- Ordered semantic selector candidates with compatibility fallbacks.
+- Bounded exponential retry/backoff for idempotent browser operations only.
+- Conservative configurable spacing between actions.
+- Private screenshot + DOM + sanitized metadata capture on unexpected failure.
+- HTTP 429 and visible throttle/block detection via `RateLimitedError`.
+- IndexedDB-aware session persistence, clean lifecycle, and cache invalidation.
+- Centralized exception types (`LoginFailedError`, `SessionExpiredError`,
   `SelectorNotFoundError`, `RateLimitedError`, etc.).
 
 ### Phase 5 — Testing & docs
@@ -181,12 +172,9 @@ back into two if that's preferred.
 2. ~~Sync or async Playwright API?~~ Resolved: sync API.
 3. ~~Definition of "user_id" — Snapchat username, or an internal id scraped
    from the DOM/network responses?~~ Resolved: hybrid — every friend/chat
-   dict always carries `username`; `user_id` is populated opportunistically
-   only if `FriendsLocators.friend_user_id_attribute` /
-   `ChatLocators.chat_item_user_id_attribute` end up pointing at a real
-   data attribute once the DOM is inspected, else it's `None`.
-   `get_user_id()` returns `user_id` if present, else falls back to
-   `username`.
+   dict always carries `username`; `user_id` is the conversation id parsed from
+   `title-<id>` or `/web/<id>` when present. `get_user_id()` falls back to the
+   username for legacy rows that expose no id.
 4. ~~2FA on the target account — enabled? If so, `login()` needs a manual
    step or callback the first time.~~ Resolved: `login()` takes an
    `otp_callback` hook (defaults to a blocking stdin prompt); not yet

@@ -139,6 +139,9 @@ venv.bak/
 # Playwright saved session state (cookies/localStorage)
 .auth/
 
+# Failure screenshots/DOM dumps can contain private Snapchat content
+.snap-auto-artifacts/
+
 # Spyder project settings
 .spyderproject
 .spyproject

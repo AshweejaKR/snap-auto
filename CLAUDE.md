@@ -1,46 +1,74 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Repository guidance for coding agents working on `snap-auto`.
 
 ## Project status
 
-`snap-auto` is a Python client for automating Snapchat via Playwright against `web.snapchat.com` (see `plan.md` for the full phased implementation plan). Phase 0 (project setup) is done: packaging, Playwright + Chromium, and the `snap_auto/` package layout exist. Phase 1 (session & auth) is done and verified end-to-end against a real account: `login()`, `logout()`, and `verify_login()` on `SnapAutoClient` are wired up against `LoginLocators`, with `storage_state` session persistence and a manual-OTP fallback hook (`otp_callback` param on `login()`, defaults to a stdin prompt). A manual smoke test (`scripts/manual_login_test.py`) has run the full `login()` → `verify_login()` → `logout()` → `verify_login()` cycle successfully headed. Two caveats remain: (1) the login page's username-step UI is not stable across sessions (observed both English/Hindi field labels and "Log in"/"Next" button labels), so `LoginLocators.username_submit_button` uses a best-effort `button[type="submit"]` guess rather than matching translated text — revisit if login starts failing at that step; (2) `otp_input`, `otp_submit_button`, and `login_error_banner` are still `"TODO"` placeholders, unverified because no real OTP challenge or rejected-login case has been hit yet.
+`snap-auto` is a synchronous Python/Playwright client for Snapchat Web. Phases 0–4
+of `plan.md` are implemented on this branch:
 
-Phase 2 (discovery) is **implemented, with the chat list's row structure confirmed via a live Playwright codegen session** (sub-fields beyond username/status still unverified). `web.snapchat.com` has **no dedicated friends page**: every friend shows up as a row in the chat list instead, each a `<button>` whose text is `"{username} , {status}"` (e.g. `"Anagha Hegde , New Snap"`, `"kiran , Received"`). `ChatLocators.chat_list_container`/`chat_list_item` use the heuristic selector `button:has-text(",")` to match these rows. `get_all_chat_session()` parses each row via `SnapAutoClient._parse_chat_row` into `{"username", "user_id", "preview", "timestamp", "unread"}` dicts (`preview` is the raw status text; `timestamp`/`unread` are `None` — no confirmed separate DOM elements for those yet). `get_fnd_list()` is derived from `get_all_chat_session()` (`{"username", "user_id"}` dicts) since there's no separate friends source to scrape — this only covers friends with an existing chat, not the full friend graph; a richer "New Chat" contact-picker source was seen in the same codegen session but its selectors were too fragile (unlabeled search box, `div.nth(3)`) to use yet. `get_user_id(name=..., index=...)` and `get_username(index)` are wired up on `SnapAutoClient`, with per-session caching (`_fnd_list_cache`/`_chat_session_cache`) and a `refresh=True` param on the two scrape methods to force a re-scrape. `user_id` is resolved as a hybrid: every friend/chat dict always has `username`; `user_id` is populated only if `chat_item_user_id_attribute` (currently `"TODO"`) ends up pointing at a real `data-*` attribute once the DOM is inspected further, otherwise it's `None` and `get_user_id()` falls back to returning the username. Remaining gaps: `chat_item_unread_marker`/`chat_item_user_id_attribute` are still `"TODO"`, and the `button:has-text(",")` heuristic should be tightened to a real container/class selector (via `scripts/inspect_dom.py`) if it ever starts matching unrelated buttons.
+- Project/package setup uses `uv`, Python 3.11+, and Playwright Chromium.
+- Login, saved-session reuse, verification, logout, and manual/callback OTP handling
+  are implemented. Phase 1 was previously smoke-tested against a real account.
+- Discovery scans the virtualized chat sidebar and returns friends/chat sessions.
+  Current semantic rows expose `aria-labelledby="title-<conversation-id>"`; the
+  earlier live-verified `button:has-text(",")` row remains a compatibility fallback.
+- Messaging opens a conversation by `/web/<conversation-id>` or sidebar/search,
+  sends text once, confirms it from composer/message state, and parses currently
+  rendered messages from `ul[id^="cv-"] > li`.
+- Reliability includes ordered selector fallbacks, retries only for idempotent
+  operations, paced actions, HTTP 429 handling, IndexedDB-aware saved state, and
+  private screenshot/HTML/metadata artifacts on unexpected failures.
 
-Phase 3 (messaging) is **implemented but unverified** — no live account session has opened a conversation thread yet, so `ChatLocators.message_input`/`send_button`/`message_bubble`/`message_bubble_sender`/`message_bubble_text`/`message_bubble_timestamp`/`message_bubble_read_marker` are all still `"TODO"` placeholders (same status Phase 1's `otp_input` had before verification). `send_msg(user_id, msg_txt)` resolves `user_id` against `get_fnd_list()` (accepts either a real id or a username, matching `get_user_id()`'s fallback behavior) via `_open_conversation`, clicks the matching chat row, fills and submits `message_input`/`send_button`, then confirms delivery by polling DOM state in `_confirm_message_sent` (compose box cleared **and** a new `message_bubble` landed) rather than sleeping a fixed amount — returns `False` on an unconfirmed timeout rather than raising, since the message may still have sent. `read_msg(user_id)` opens the same conversation and returns every currently-rendered `message_bubble` as a `{"sender", "text", "timestamp", "read"}` dict via `_parse_message_bubble` (`text` falls back to the bubble's raw `text_content()` if `message_bubble_text` stays unresolved; `read` is `None` until `message_bubble_read_marker` is filled in, mirroring `chat_item_unread_marker`'s presence-based pattern); it does not click into or otherwise interact with individual messages, so it doesn't itself trigger any mark-as-read/expiry side effects beyond opening the thread. Next step: run a Playwright codegen session against a real conversation to fill in the message-thread selectors, the same way Phase 2's chat-list selectors were confirmed.
+No live credentials or saved browser state are committed. A live message-send test
+must always use a dedicated test account and an explicitly chosen recipient; unit
+tests and CI are Phase 5.
 
 ## Tooling
 
-- Packaging/dependency manager: **uv** (`pyproject.toml`, `uv.lock`).
-- Browser automation: **Playwright**, sync API, Chromium only for now.
-- Python: `>=3.11` (see `.python-version`).
+- Packaging/dependency manager: `uv` (`pyproject.toml`, `uv.lock`).
+- Browser automation: Playwright sync API, Chromium.
+- Python: `>=3.11` (`.python-version`).
 
 ## Common commands
 
 ```bash
-uv sync                        # install/update dependencies into .venv
-uv add <package>                # add a new dependency
-uv run playwright install chromium   # (re)install the Chromium browser binary
-uv run python -c "import snap_auto"  # sanity-check the package imports
-uv run pytest                   # run tests (once pytest is added in Phase 5)
+uv sync
+uv run playwright install chromium
+uv run python -c "import snap_auto"
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
 ```
 
-Copy `.env.example` to `.env` and fill in `SNAP_USERNAME`/`SNAP_PASSWORD` before running anything that logs in.
+Copy `.env.example` to `.env` for live-account work. Never hardcode, print, log, or
+commit credentials, storage state, screenshots, or DOM dumps.
 
 ## Architecture
 
-- `snap_auto/client.py` — `SnapAutoClient`, the public API surface (Page Object Model consumer). Wraps a Playwright `Browser`/`BrowserContext`/`Page`; supports use as a context manager (`with SnapAutoClient() as client:`).
-- `snap_auto/locators.py` — all CSS/text selectors, grouped by page (`LoginLocators`, `FriendsLocators`, `ChatLocators`). UI/selector drift should only ever require editing this file, not `client.py`. `LoginLocators` is filled in and verified except `otp_input`/`otp_submit_button`/`login_error_banner` (still `"TODO"`). `FriendsLocators` is intentionally empty — there's no dedicated friends page, so `get_fnd_list()` derives from the chat list instead (see Project status). `ChatLocators.chat_list_container`/`chat_list_item` use the confirmed heuristic `button:has-text(",")` (every chat row's text is `"{username} , {status}"`); `chat_item_username`/`chat_item_preview`/`chat_item_timestamp`/`chat_item_unread_marker`/`chat_item_user_id_attribute` are still `"TODO"` since no separate sub-elements are confirmed yet — `client.py` parses the combined row text instead. `ChatLocators.message_input`/`send_button`/`message_bubble` are for the Phase 3 message thread UI, not the chat list.
-- `snap_auto/exceptions.py` — exception hierarchy rooted at `SnapAutoError` (`LoginFailedError`, `SessionExpiredError`, `SelectorNotFoundError`, `RateLimitedError`, `UserNotFoundError`).
-- `snap_auto/config.py` — `Config` dataclass loaded from environment/`.env` via `python-dotenv` (`Config.from_env()`). Holds credentials, headless flag, and the Playwright `storage_state` path.
-- `tests/` — empty, reserved for Phase 5 (unit tests against saved HTML fixtures, plus opt-in integration tests gated behind an env flag).
+- `snap_auto/client.py` — public `SnapAutoClient`, lifecycle, auth, discovery,
+  messaging, retry/rate-limit behavior, and local diagnostics.
+- `snap_auto/locators.py` — ordered selector candidates only. Do not inline UI
+  selectors in `client.py`.
+- `snap_auto/parsing.py` — pure normalization/parsing functions for DOM snapshots;
+  keep UI parsing testable without a live account.
+- `snap_auto/config.py` — immutable environment-backed configuration.
+- `snap_auto/exceptions.py` — exception hierarchy rooted at `SnapAutoError`.
+- `scripts/` — explicitly invoked live/manual helpers.
+- `tests/` — offline unit tests plus opt-in live tests (Phase 5).
 
-Session cookies get saved to `.auth/storage_state.json` (path configurable via `SNAP_STORAGE_STATE_PATH`) once login is implemented; that directory is gitignored.
+Saved session state lives under `.auth/`. Failure artifacts live under
+`.snap-auto-artifacts/`; both are gitignored and may contain sensitive account/chat
+data.
 
-## Working in this repo
+## Working rules
 
-- Follow `plan.md`'s phase order — don't implement Phase 2/3 scraping logic before Phase 1 (login/session) is solid, since everything downstream depends on an authenticated `Page`.
-- Keep selectors in `locators.py` only; never inline a CSS/text selector inside `client.py`.
-- Never hardcode or log credentials; they must only ever come through `Config`/`.env`.
-- Update this file's "Project status" section as phases land, so it doesn't go stale again.
+- Follow `plan.md` phase order and keep its status accurate.
+- Prefer semantic attributes/roles over generated CSS classes. Retain a confirmed
+  fallback when changing a selector.
+- Never retry a message after submission; an unconfirmed send may still have
+  succeeded, and retrying can create duplicates.
+- Unit tests must not contact Snapchat. Live tests must be opt-in and must not send
+  unless both a recipient and test message are explicitly configured.
+- Keep public methods backward-compatible unless `plan.md` and README document a
+  deliberate versioned change.
